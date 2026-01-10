@@ -48,33 +48,80 @@ st.markdown("""
     }
     
     /* Sidebar styling */
-    [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #ffffff 0%, #f8f9fb 100%);
-        border-right: 1px solid rgba(0, 0, 0, 0.06);
-        box-shadow: 2px 0 12px rgba(0, 0, 0, 0.03);
+    /* ============================================================
+       RADIO BUTTONS STYLED AS BUTTONS - KEY STYLING
+       ============================================================ */
+    
+    /* Hide the radio button circle */
+    [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label > div:first-child {
+        display: none !important;
     }
     
-    [data-testid="stSidebar"] .stRadio > label {
-        color: #2d3748;
-        font-weight: 500;
-        font-size: 0.95rem;
+    /* Style the radio button labels as buttons */
+    [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label {
+        background: #ffffff !important;
+        padding: 14px 20px !important;
+        border-radius: 12px !important;
+        margin: 8px 0 !important;
+        cursor: pointer !important;
+        transition: all 0.3s ease !important;
+        border: 1px solid rgba(139, 92, 246, 0.3) !important;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02) !important;
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+        font-weight: 600 !important;
+        font-size: 0.95rem !important;
+        color: #4a5568 !important;
     }
     
-    [data-testid="stSidebar"] [data-baseweb="radio"] > div {
-        background: #ffffff;
-        padding: 12px 16px;
-        border-radius: 12px;
-        margin: 6px 0;
-        transition: all 0.3s ease;
-        border: 1px solid rgba(0, 0, 0, 0.06);
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
+    /* Make sure the text/span inside is also visible */
+    [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label p,
+    [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label span {
+        color: #4a5568 !important;
+        font-weight: 600 !important;
     }
     
-    [data-testid="stSidebar"] [data-baseweb="radio"] > div:hover {
-        background: linear-gradient(135deg, #e8d5ff 0%, #d5e8ff 100%);
-        border-color: rgba(139, 92, 246, 0.3);
+    /* Hover effect for radio buttons */
+    [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label:hover {
+        background: linear-gradient(135deg, #ede9fe 0%, #e0e7ff 100%) !important;
+        border-color: rgba(139, 92, 246, 0.5) !important;
         transform: translateX(4px);
-        box-shadow: 0 4px 12px rgba(139, 92, 246, 0.15);
+        box-shadow: 0 4px 12px rgba(139, 92, 246, 0.15) !important;
+    }
+    
+    [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label:hover p,
+    [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label:hover span {
+        color: #5b21b6 !important;
+    }
+    
+    /* Selected/Active state for radio buttons */
+    [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label[data-checked="true"],
+    [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label:has(input:checked) {
+        background: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%) !important;
+        color: white !important;
+        border-color: transparent !important;
+        box-shadow: 0 4px 15px rgba(139, 92, 246, 0.4) !important;
+        font-weight: 600 !important;
+    }
+    
+    /* Selected state text color */
+    [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label[data-checked="true"] p,
+    [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label[data-checked="true"] span,
+    [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label:has(input:checked) p,
+    [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label:has(input:checked) span {
+        color: white !important;
+        font-weight: 600 !important;
+    }
+    
+    /* Alternative selected state selector for better compatibility */
+    [data-testid="stSidebar"] [data-baseweb="radio"] input:checked + div {
+        background: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%) !important;
+    }
+    
+    /* Hide the radio group label if needed */
+    [data-testid="stSidebar"] .stRadio > label {
+        display: none;
     }
     
     /* Header styling */
@@ -482,7 +529,6 @@ def main():
     st.markdown("""
     <div class="main-header">
         <h1>Sri Lanka Food Price Volatility Predictor</h1>
-        <p>Advanced ML-powered analytics using CatBoost model</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -509,18 +555,25 @@ def main():
         df = load_processed_data()
         feat_imp = load_feature_importance()
         class_report = load_classification_report()
-        st.sidebar.success("✓ Model loaded successfully")
+        st.sidebar.success("Model loaded successfully")
     except Exception as e:
         st.error(f"Error loading model: {str(e)}")
         return
     
-    # Sidebar navigation
+    # Sidebar navigation with session state
+    # Sidebar navigation with radio buttons
     st.sidebar.header("Navigation")
+    
+    page = st.sidebar.radio(
+        "Select a page:",
+        ["Overview", "Model Performance", "Feature Importance", "SHAP Analysis", "Make Predictions", "Data Explorer"],
+        label_visibility="collapsed"
+    )
     
     # ============================================================
     # PAGE: OVERVIEW
     # ============================================================
-    if st.sidebar.button("Overview"):        
+    if page == "Overview":
         st.header("Dataset & Model Overview")
         
         col1, col2, col3, col4 = st.columns(4)
@@ -566,7 +619,7 @@ def main():
     # ============================================================
     # PAGE: MODEL PERFORMANCE
     # ============================================================
-    elif st.sidebar.button("Model Performance"):   
+    elif page == "Model Performance":
         st.header("Model Performance")
         
         test_m = metrics['test']
@@ -720,7 +773,7 @@ def main():
     # ============================================================
     # PAGE: FEATURE ANALYSIS
     # ============================================================
-    elif st.sidebar.button("Feature Importance"):         
+    elif page == "Feature Importance":
         st.header("Feature Importance")
         
         fig = px.bar(
@@ -741,7 +794,7 @@ def main():
     # ============================================================
     # PAGE: SHAP ANALYSIS
     # ============================================================
-    elif st.sidebar.button("SHAP Analysis"):         
+    elif page == "SHAP Analysis":
         st.header("SHAP Analysis")
         
         col1, col2 = st.columns(2)
@@ -833,7 +886,7 @@ def main():
     # ============================================================
     # PAGE: MAKE PREDICTIONS
     # ============================================================
-    elif st.sidebar.button("Make Predictions"):         
+    elif page == "Make Predictions":
         st.header("Predict Price Volatility")
         
         col1, col2, col3 = st.columns(3)
@@ -906,7 +959,7 @@ def main():
     # ============================================================
     # PAGE: DATA EXPLORER
     # ============================================================
-    elif st.sidebar.button("Data Explorer"):         
+    elif page == "Data Explorer":
         st.header("Data Explorer")
         
         col1, col2 = st.columns(2)
