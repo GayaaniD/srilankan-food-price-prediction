@@ -1,14 +1,4 @@
-"""
-Sri Lanka Food Price Volatility Prediction Dashboard
-=====================================================
-Modern Streamlit Application using Pre-trained CatBoost Model
 
-IMPORTANT: Run the training script first!
-    python catboost_train_model.py
-
-Then run this app:
-    streamlit run streamlit_app.py
-"""
 
 import streamlit as st
 import pandas as pd
@@ -29,9 +19,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ============================================================
+
 # MODERN CSS STYLING
-# ============================================================
+
 st.markdown("""
 <style>
     /* Import Google Fonts */
@@ -48,9 +38,9 @@ st.markdown("""
     }
     
     /* Sidebar styling */
-    /* ============================================================
+    /* 
        RADIO BUTTONS STYLED AS BUTTONS - KEY STYLING
-       ============================================================ */
+        */
     
     /* Hide the radio button circle */
     [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label > div:first-child {
@@ -371,9 +361,9 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ============================================================
+
 # CHECK FOR REQUIRED FILES
-# ============================================================
+
 REQUIRED_FILES = [
     'catboost_model.cbm',
     'feature_info.json',
@@ -391,9 +381,9 @@ def check_required_files():
             missing_files.append(file)
     return missing_files
 
-# ============================================================
+
 # LOAD PRE-TRAINED MODEL AND DATA (CACHED)
-# ============================================================
+
 @st.cache_resource
 def load_model():
     """Load the pre-trained CatBoost model (cached - loads only once)"""
@@ -431,9 +421,9 @@ def load_classification_report():
     with open('classification_report.json', 'r') as f:
         return json.load(f)
 
-# ============================================================
+
 # FEATURE ENGINEERING FOR NEW PREDICTIONS
-# ============================================================
+
 def create_features_for_prediction(input_data, historical_data, feature_info):
     """Create features for a new prediction based on input data"""
     commodity_hist = historical_data[historical_data['commodity'] == input_data['commodity']]
@@ -507,9 +497,9 @@ def create_features_for_prediction(input_data, historical_data, feature_info):
     
     return feature_df, None
 
-# ============================================================
+
 # PLOTLY THEME
-# ============================================================
+
 def get_plotly_template():
     """Return modern light plotly template"""
     return {
@@ -522,9 +512,9 @@ def get_plotly_template():
         }
     }
 
-# ============================================================
+
 # MAIN APP
-# ============================================================
+
 def main():
     st.markdown("""
     <div class="main-header">
@@ -560,7 +550,6 @@ def main():
         st.error(f"Error loading model: {str(e)}")
         return
     
-    # Sidebar navigation with session state
     # Sidebar navigation with radio buttons
     st.sidebar.header("Navigation")
     
@@ -570,9 +559,9 @@ def main():
         label_visibility="collapsed"
     )
     
-    # ============================================================
+    
     # PAGE: OVERVIEW
-    # ============================================================
+    
     if page == "Overview":
         st.header("Dataset & Model Overview")
         
@@ -616,9 +605,9 @@ def main():
             fig.update_layout(showlegend=False, height=300)
             st.plotly_chart(fig, use_container_width=True)
     
-    # ============================================================
+    
     # PAGE: MODEL PERFORMANCE
-    # ============================================================
+    
     elif page == "Model Performance":
         st.header("Model Performance")
         
@@ -770,9 +759,9 @@ def main():
         **Overall Accuracy:** {accuracy:.2f}
         """)
     
-    # ============================================================
+    
     # PAGE: FEATURE ANALYSIS
-    # ============================================================
+    
     elif page == "Feature Importance":
         st.header("Feature Importance")
         
@@ -791,9 +780,9 @@ def main():
         
         st.dataframe(feat_imp, use_container_width=True)
     
-    # ============================================================
+    
     # PAGE: SHAP ANALYSIS
-    # ============================================================
+    
     elif page == "SHAP Analysis":
         st.header("SHAP Analysis")
         
@@ -825,23 +814,6 @@ def main():
             3. **{top_features[2]}**
             4. **{top_features[3]}**
             5. **{top_features[4]}**
-            
-            ---
-            
-            **Feature Categories:**
-            
-            **Lag Features** (`rolling_volatility_3`, `price_change_lag_1`):
-            - Historical patterns predict future volatility
-            - "Volatility clustering" effect
-            
-            **Price Features** (`price_momentum`, `z_score`):
-            - Unusual prices signal instability
-            
-            **Location** (`market`, `admin1`):
-            - Regional market differences
-            
-            **Temporal** (`month`, `is_festive_period`):
-            - Seasonal effects
             """)
         
         
@@ -883,9 +855,9 @@ def main():
             fig.update_layout(height=400)
             st.plotly_chart(fig, use_container_width=True)
     
-    # ============================================================
+    
     # PAGE: MAKE PREDICTIONS
-    # ============================================================
+    
     elif page == "Make Predictions":
         st.header("Predict Price Volatility")
         
@@ -956,9 +928,9 @@ def main():
                     </div>
                     """, unsafe_allow_html=True)
     
-    # ============================================================
+    
     # PAGE: DATA EXPLORER
-    # ============================================================
+    
     elif page == "Data Explorer":
         st.header("Data Explorer")
         

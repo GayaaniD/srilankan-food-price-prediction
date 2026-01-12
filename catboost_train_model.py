@@ -1,29 +1,5 @@
-"""
-WFP Sri Lanka Food Price Volatility Prediction using CatBoost
-==============================================================
-Machine Learning Assignment - MSc in AI
 
-Algorithm: CatBoost (Categorical Boosting)
-Dataset: WFP Food Prices Sri Lanka (2004-2025)
-Problem: Binary Classification - Predict High Price Volatility
-
-IMPROVEMENTS:
-- Added regularization to prevent overfitting
-- Saves model for use in Streamlit app
-- Saves preprocessed data and feature information
-
-This script covers:
-1. Data Loading & Preprocessing
-2. Feature Engineering
-3. Model Training (CatBoost with regularization)
-4. Evaluation
-5. Explainability (SHAP + Feature Importance)
-6. Model Saving for Deployment
-"""
-
-# ============================================================
-# IMPORTS
-# ============================================================
+#################################### IMPORTS ##########################################
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -33,8 +9,6 @@ import pickle
 import json
 import warnings
 warnings.filterwarnings('ignore')
-
-# Scikit-learn
 from sklearn.model_selection import train_test_split, TimeSeriesSplit, cross_val_score
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import (
@@ -42,29 +16,16 @@ from sklearn.metrics import (
     roc_auc_score, confusion_matrix, classification_report,
     roc_curve, precision_recall_curve, average_precision_score
 )
-
-# CatBoost
 from catboost import CatBoostClassifier, Pool
-
-# For explainability
 import shap
 
 # Set style
 plt.style.use('seaborn-v0_8-whitegrid')
 sns.set_palette("husl")
 
-print("=" * 70)
-print("   FOOD PRICE VOLATILITY PREDICTION USING CATBOOST")
-print("   Sri Lanka WFP Food Prices Dataset (2004-2025)")
-print("   (With Overfitting Prevention)")
-print("=" * 70)
+######################## 1. DATA LOADING & INITIAL EXPLORATION ########################
 
-# ============================================================
-# 1. DATA LOADING & INITIAL EXPLORATION
-# ============================================================
-print("\n" + "=" * 70)
 print("1. DATA LOADING & INITIAL EXPLORATION")
-print("=" * 70)
 
 # Load data (skip the second header row which contains metadata)
 df = pd.read_csv('wfp_food_prices_lka.csv', skiprows=[1])
@@ -76,21 +37,19 @@ print(f"Columns: {list(df.columns)}")
 df['date'] = pd.to_datetime(df['date'])
 
 # Basic info
-print("\n--- Data Types ---")
+print("\nData Types")
 print(df.dtypes)
 
-print("\n--- Missing Values ---")
+print("\nMissing Values")
 print(df.isnull().sum())
 
-print("\n--- Basic Statistics ---")
+print("\nBasic Statistics")
 print(df[['price', 'usdprice']].describe())
 
-# ============================================================
-# 2. DATA PREPROCESSING
-# ============================================================
-print("\n" + "=" * 70)
+
+######################## 2. DATA PREPROCESSING ########################
+
 print("2. DATA PREPROCESSING")
-print("=" * 70)
 
 # Handle missing values
 print(f"\nMissing values before cleaning: {df.isnull().sum().sum()}")
@@ -111,12 +70,10 @@ print(f"Rows after removing National Average: {len(df_clean)}")
 df_clean = df_clean.sort_values(['commodity', 'market', 'date']).reset_index(drop=True)
 print(f"Final dataset size: {len(df_clean)}")
 
-# ============================================================
-# 3. TARGET VARIABLE CREATION
-# ============================================================
-print("\n" + "=" * 70)
+
+######################### 3. TARGET VARIABLE CREATION #########################
+
 print("3. TARGET VARIABLE CREATION")
-print("=" * 70)
 
 # Calculate price change percentage (month-over-month)
 df_clean['price_change_pct'] = df_clean.groupby(['commodity', 'market'])['price'].pct_change() * 100
@@ -129,22 +86,20 @@ df_clean['high_volatility'] = (abs(df_clean['price_change_pct']) > VOLATILITY_TH
 df_clean = df_clean.dropna(subset=['price_change_pct'])
 
 print(f"\nVolatility Threshold: {VOLATILITY_THRESHOLD}%")
-print(f"\n--- Target Variable Distribution ---")
+print(f"\nTarget Variable Distribution ---")
 print(df_clean['high_volatility'].value_counts())
 print(f"\nClass Balance:")
 print(f"  Stable (0): {(df_clean['high_volatility']==0).mean()*100:.1f}%")
 print(f"  Volatile (1): {(df_clean['high_volatility']==1).mean()*100:.1f}%")
 
-# ============================================================
-# 4. FEATURE ENGINEERING
-# ============================================================
-print("\n" + "=" * 70)
+
+######################### 4. FEATURE ENGINEERING #########################
+
 print("4. FEATURE ENGINEERING")
-print("=" * 70)
 
 df_features = df_clean.copy()
 
-# --- 4.1 Temporal Features ---
+# 4.1 Temporal Features 
 print("\nCreating temporal features...")
 df_features['year'] = df_features['date'].dt.year
 df_features['month'] = df_features['date'].dt.month
@@ -161,7 +116,7 @@ df_features['is_ne_monsoon'] = df_features['month'].isin([12, 1, 2]).astype(int)
 min_date = df_features['date'].min()
 df_features['months_since_start'] = ((df_features['date'] - min_date).dt.days / 30.44).astype(int)
 
-# --- 4.2 Lag Features (Critical for Volatility Prediction) ---
+# 4.2 Lag Features (Critical for Volatility Prediction)
 print("Creating lag features...")
 
 def create_lag_features(group):
@@ -196,7 +151,7 @@ def create_lag_features(group):
 
 df_features = df_features.groupby(['commodity', 'market'], group_keys=False).apply(create_lag_features)
 
-# --- 4.3 Price-Based Features ---
+# 4.3 Price-Based Features
 print("Creating price-based features...")
 
 # Z-score (standardized deviation from rolling mean)
@@ -215,7 +170,7 @@ df_features['price_percentile'] = df_features.groupby('commodity')['price'].tran
     lambda x: x.rank(pct=True)
 )
 
-# --- 4.4 Geographic Features ---
+# 4.4 Geographic Features
 print("Creating geographic features...")
 
 colombo_lat, colombo_lon = 6.93, 79.85
@@ -236,7 +191,7 @@ df_features['distance_from_colombo'] = haversine_distance(
 
 df_features['is_conflict_region'] = df_features['admin1'].isin(['Northern', 'Eastern']).astype(int)
 
-# --- 4.5 Commodity Features ---
+# 4.5 Commodity Features
 print("Creating commodity features...")
 
 essential_commodities = ['Rice (red nadu)', 'Rice (white)', 'Rice (medium grain)', 
@@ -245,7 +200,7 @@ essential_commodities = ['Rice (red nadu)', 'Rice (white)', 'Rice (medium grain)
                          'Onions (red)', 'Lentils', 'Sugar']
 df_features['is_essential'] = df_features['commodity'].isin(essential_commodities).astype(int)
 
-# --- 4.6 Handle Missing Values from Lag Features ---
+# 4.6 Handle Missing Values from Lag Features
 print("\nHandling missing values from lag features...")
 
 lag_columns = ['price_lag_1', 'price_lag_2', 'price_lag_3', 
@@ -263,12 +218,10 @@ df_features = df_features.fillna(df_features.median(numeric_only=True))
 print(f"\nFeatures created: {len(df_features.columns)} columns")
 print(f"Remaining missing values: {df_features.isnull().sum().sum()}")
 
-# ============================================================
-# 5. PREPARE DATA FOR CATBOOST
-# ============================================================
-print("\n" + "=" * 70)
+
+######################### 5. PREPARE DATA FOR CATBOOST #########################
+
 print("5. PREPARE DATA FOR CATBOOST")
-print("=" * 70)
 
 # Define feature columns - REDUCED to prevent overfitting
 # Remove highly correlated and redundant features
@@ -315,12 +268,10 @@ print(f"\nFeatures used: {all_features}")
 X = df_features[all_features].copy()
 y = df_features['high_volatility'].copy()
 
-# ============================================================
+
 # 6. TRAIN/VALIDATION/TEST SPLIT (Using train_test_split)
-# ============================================================
-print("\n" + "=" * 70)
+
 print("6. TRAIN/VALIDATION/TEST SPLIT (Using train_test_split)")
-print("=" * 70)
 
 # Prepare X and y
 X = df_features[all_features].copy()
@@ -346,29 +297,15 @@ print(f"\nTraining set: {len(X_train)} samples ({len(X_train)/len(X)*100:.1f}%)"
 print(f"Validation set: {len(X_val)} samples ({len(X_val)/len(X)*100:.1f}%)")
 print(f"Test set: {len(X_test)} samples ({len(X_test)/len(X)*100:.1f}%)")
 
-print(f"\n--- Class Distribution ---")
+print(f"\nClass Distribution")
 print(f"Training - Volatile: {y_train.mean()*100:.1f}%")
 print(f"Validation - Volatile: {y_val.mean()*100:.1f}%")
 print(f"Test - Volatile: {y_test.mean()*100:.1f}%")
 
-# ============================================================
-# 7. MODEL TRAINING - CATBOOST (WITH REGULARIZATION)
-# ============================================================
-print("\n" + "=" * 70)
-print("7. MODEL TRAINING - CATBOOST (WITH REGULARIZATION)")
-print("=" * 70)
 
-print("""
-OVERFITTING PREVENTION STRATEGIES:
-----------------------------------
-1. Reduced tree depth (6 -> 4)
-2. Increased L2 regularization (3 -> 5)
-3. Increased min_data_in_leaf (20 -> 50)
-4. Added random_strength for more randomization
-5. Reduced number of features
-6. Early stopping with patience
-7. Subsampling (subsample < 1.0)
-""")
+######################### 7. MODEL TRAINING - CATBOOST (WITH REGULARIZATION) #########################
+
+print("7. MODEL TRAINING - CATBOOST (WITH REGULARIZATION)")
 
 # Create CatBoost Pools
 train_pool = Pool(
@@ -425,7 +362,7 @@ catboost_model = CatBoostClassifier(
 )
 
 print("\nTraining CatBoost model with regularization...")
-print("-" * 50)
+
 
 catboost_model.fit(
     train_pool,
@@ -437,12 +374,10 @@ print("\nModel training complete!")
 print(f"Best iteration: {catboost_model.get_best_iteration()}")
 print(f"Best validation AUC: {catboost_model.get_best_score()['validation']['AUC']:.4f}")
 
-# ============================================================
-# 8. MODEL EVALUATION
-# ============================================================
-print("\n" + "=" * 70)
+
+######################### 8. MODEL EVALUATION #########################
+
 print("8. MODEL EVALUATION")
-print("=" * 70)
 
 # Predictions
 y_train_pred = catboost_model.predict(X_train)
@@ -455,7 +390,7 @@ y_test_prob = catboost_model.predict_proba(X_test)[:, 1]
 
 # Calculate metrics
 def calculate_metrics(y_true, y_pred, y_prob, set_name):
-    print(f"\n--- {set_name} Set Metrics ---")
+    print(f"\n{set_name} Set Metrics ---")
     acc = accuracy_score(y_true, y_pred)
     prec = precision_score(y_true, y_pred)
     rec = recall_score(y_true, y_pred)
@@ -484,43 +419,41 @@ val_metrics = calculate_metrics(y_val, y_val_pred, y_val_prob, "Validation")
 test_metrics = calculate_metrics(y_test, y_test_pred, y_test_prob, "Test")
 
 # Check for overfitting
-print("\n" + "=" * 50)
+
 print("OVERFITTING CHECK")
-print("=" * 50)
+
 train_test_gap = train_metrics['accuracy'] - test_metrics['accuracy']
 print(f"Training Accuracy:  {train_metrics['accuracy']:.4f}")
 print(f"Test Accuracy:      {test_metrics['accuracy']:.4f}")
 print(f"Gap:                {train_test_gap:.4f}")
 
 if train_test_gap > 0.1:
-    print("⚠️  WARNING: Model may still be overfitting (gap > 0.1)")
+    print("WARNING: Model may still be overfitting (gap > 0.1)")
 elif train_test_gap > 0.05:
-    print("⚡ NOTICE: Slight overfitting detected (gap 0.05-0.1)")
+    print("NOTICE: Slight overfitting detected (gap 0.05-0.1)")
 else:
-    print("✅ GOOD: Model generalization looks healthy (gap < 0.05)")
+    print("GOOD: Model generalization looks healthy (gap < 0.05)")
 
 # Classification Report
-print("\n--- Detailed Classification Report (Test Set) ---")
+print("\nDetailed Classification Report (Test Set)")
 print(classification_report(y_test, y_test_pred, target_names=['Stable', 'Volatile']))
 
 # Confusion Matrix
-print("\n--- Confusion Matrix (Test Set) ---")
+print("\nConfusion Matrix (Test Set)")
 cm = confusion_matrix(y_test, y_test_pred)
 print(cm)
 print(f"\nTrue Negatives: {cm[0,0]}, False Positives: {cm[0,1]}")
 print(f"False Negatives: {cm[1,0]}, True Positives: {cm[1,1]}")
 
-# ============================================================
-# 9. SAVE MODEL AND ARTIFACTS FOR STREAMLIT
-# ============================================================
-print("\n" + "=" * 70)
+
+#########################  9. SAVE MODEL AND ARTIFACTS FOR STREAMLIT #########################
+
 print("9. SAVE MODEL AND ARTIFACTS FOR STREAMLIT")
-print("=" * 70)
 
 # Save the trained model
 model_path = 'catboost_model.cbm'
 catboost_model.save_model(model_path)
-print(f"✅ Model saved to: {model_path}")
+print(f"Model saved to: {model_path}")
 
 # Save feature information
 feature_info = {
@@ -533,7 +466,7 @@ feature_info = {
 
 with open('feature_info.json', 'w') as f:
     json.dump(feature_info, f, indent=2)
-print("✅ Feature info saved to: feature_info.json")
+print("Feature info saved to: feature_info.json")
 
 # Save metrics
 all_metrics = {
@@ -544,17 +477,17 @@ all_metrics = {
 
 with open('model_metrics.json', 'w') as f:
     json.dump(all_metrics, f, indent=2)
-print("✅ Metrics saved to: model_metrics.json")
+print("Metrics saved to: model_metrics.json")
 
 # Save classification report for Streamlit
 classification_rep = classification_report(y_test, y_test_pred, target_names=['Stable', 'Volatile'], output_dict=True)
 with open('classification_report.json', 'w') as f:
     json.dump(classification_rep, f, indent=2)
-print("✅ Classification report saved to: classification_report.json")
+print("Classification report saved to: classification_report.json")
 
 # Save processed data for reference
 df_features.to_csv('processed_data.csv', index=False)
-print("✅ Processed data saved to: processed_data.csv")
+print("Processed data saved to: processed_data.csv")
 
 # Save feature importance
 feature_importance = catboost_model.get_feature_importance()
@@ -563,14 +496,12 @@ importance_df = pd.DataFrame({
     'importance': feature_importance
 }).sort_values('importance', ascending=False)
 importance_df.to_csv('feature_importance.csv', index=False)
-print("✅ Feature importance saved to: feature_importance.csv")
+print("Feature importance saved to: feature_importance.csv")
 
-# ============================================================
-# 10. VISUALIZATION
-# ============================================================
-print("\n" + "=" * 70)
+
+#########################  10. VISUALIZATION #########################
+
 print("10. VISUALIZATION")
-print("=" * 70)
 
 fig, axes = plt.subplots(2, 3, figsize=(18, 12))
 
@@ -658,14 +589,12 @@ for bar in bars2:
 plt.tight_layout()
 plt.savefig('catboost_evaluation_results.png', dpi=300, bbox_inches='tight')
 plt.show()
-print("\n✅ Visualization saved as 'catboost_evaluation_results.png'")
+print("\nVisualization saved as 'catboost_evaluation_results.png'")
 
-# ============================================================
-# 11. EXPLAINABILITY - SHAP ANALYSIS
-# ============================================================
-print("\n" + "=" * 70)
+
+#########################  11. EXPLAINABILITY - SHAP ANALYSIS #########################
+
 print("11. EXPLAINABILITY - SHAP ANALYSIS")
-print("=" * 70)
 
 # Sample for SHAP
 sample_size = min(1000, len(X_test))
@@ -681,7 +610,7 @@ shap_values = catboost_model.get_feature_importance(
 )
 
 shap_values_no_bias = shap_values[:, :-1]
-print("✅ SHAP values calculated!")
+print("SHAP values calculated!")
 
 # SHAP Summary Plot
 plt.figure(figsize=(12, 10))
@@ -696,36 +625,12 @@ plt.title('SHAP Feature Importance Summary', fontsize=14)
 plt.tight_layout()
 plt.savefig('shap_summary_plot.png', dpi=300, bbox_inches='tight')
 plt.show()
-print("✅ SHAP summary plot saved as 'shap_summary_plot.png'")
+print("SHAP summary plot saved as 'shap_summary_plot.png'")
 
-# ============================================================
-# 12. FINAL SUMMARY
-# ============================================================
-print("\n" + "=" * 70)
+
+#########################  12. FINAL SUMMARY #########################
+
 print("12. FINAL SUMMARY")
-print("=" * 70)
-
-print("""
-FILES GENERATED FOR STREAMLIT APP:
-==================================
-1. catboost_model.cbm      - Trained CatBoost model
-2. feature_info.json       - Feature names and configurations
-3. model_metrics.json      - Performance metrics
-4. processed_data.csv      - Processed dataset with features
-5. feature_importance.csv  - Feature importance ranking
-6. catboost_evaluation_results.png - Evaluation visualizations
-7. shap_summary_plot.png   - SHAP analysis plot
-
-USAGE IN STREAMLIT:
-===================
-The Streamlit app will:
-1. Load the pre-trained model from 'catboost_model.cbm'
-2. Use 'feature_info.json' to know which features to create
-3. Display metrics from 'model_metrics.json'
-4. Make predictions using the loaded model
-
-NO RETRAINING NEEDED!
-""")
 
 print(f"""
 MODEL PERFORMANCE SUMMARY:
@@ -738,6 +643,4 @@ ROC-AUC:        {train_metrics['roc_auc']:.4f}    {test_metrics['roc_auc']:.4f} 
 Best Iteration: {catboost_model.get_best_iteration()}
 """)
 
-print("=" * 70)
 print("TRAINING COMPLETE! Now run the Streamlit app.")
-print("=" * 70)
