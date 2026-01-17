@@ -1,5 +1,3 @@
-
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -9,6 +7,8 @@ from catboost import CatBoostClassifier, Pool
 import json
 import os
 import warnings
+import shap
+import matplotlib.pyplot as plt
 warnings.filterwarnings('ignore')
 
 # Page configuration
@@ -422,6 +422,26 @@ def load_classification_report():
         return json.load(f)
 
 
+# SHAP COMPUTATION FUNCTION
+
+def compute_shap_values(model, data_sample):
+    """Compute SHAP values for a sample of data"""
+    # Create SHAP explainer
+    explainer = shap.TreeExplainer(model)
+    shap_values = explainer.shap_values(data_sample)
+    
+    # Handle different return types from CatBoost
+    if isinstance(shap_values, list):
+        # Binary classification - get positive class SHAP values
+        shap_values = shap_values[1] if len(shap_values) > 1 else shap_values[0]
+    
+    expected_value = explainer.expected_value
+    if isinstance(expected_value, list):
+        expected_value = expected_value[1] if len(expected_value) > 1 else expected_value[0]
+    
+    return shap_values, expected_value
+
+
 # FEATURE ENGINEERING FOR NEW PREDICTIONS
 
 def create_features_for_prediction(input_data, historical_data, feature_info):
@@ -716,74 +736,132 @@ def main():
     elif page == "SHAP Analysis":
         st.header("SHAP Analysis")
         
-        col1, col2 = st.columns(2)
+        st.info("📊 SHAP (SHapley Additive exPlanations) values show how each feature contributes to individual predictions")
         
+        # Sample size selector
+        col1, col2 = st.columns([3, 1])
         with col1:
-            st.subheader("Top 15 Features by Importance")
-            fig = px.bar(
-                feat_imp.head(15),
-                x='importance',
-                y='feature',
-                orientation='h',
-                color='importance',
-                color_continuous_scale='Plasma',
-                template=get_plotly_template()
-            )
-            fig.update_layout(height=500, showlegend=False)
-            fig.update_yaxes(autorange="reversed")
-            st.plotly_chart(fig, use_container_width=True)
-        
+            st.markdown("**Select sample size for SHAP computation:**")
         with col2:
-            st.subheader("Key Insights")
-            top_features = feat_imp.head(5)['feature'].tolist()
-            st.markdown(f"""
-            **Top 5 Most Important Features:**
+            sample_size = st.selectbox("Sample", [100, 500, 1000, 2000], index=1)
+        
+        # Prepare sample data
+        with st.spinner(f"Computing SHAP values for {sample_size} samples..."):
+            # Get a representative sample
+            sample_df = df.sample(n=min(sample_size, len(df)), random_state=42)
             
-            1. **{top_features[0]}** - Most influential
-            2. **{top_features[1]}**
-            3. **{top_features[2]}**
-            4. **{top_features[3]}**
-            5. **{top_features[4]}**
+            # Prepare features for SHAP
+            X_sample = sample_df[feature_info['all_features']].copy()
+            
+            # Handle categorical features
+            for col in feature_info['categorical_features']:
+                if col in X_sample.columns:
+                    X_sample[col] = X_sample[col].astype(str)
+            
+            # Compute SHAP values
+            shap_values, expected_value = compute_shap_values(model, X_sample)
+            
+            st.success(f"✓ SHAP values computed for {len(X_sample)} samples")
+        
+        # Tab layout for different SHAP visualizations
+        tab1, tab2, tab4 = st.tabs(["Summary Plot", "Bar Plot", "Single Prediction"])
+        
+        with tab1:
+            st.subheader("SHAP Summary Plot")
+            st.markdown("**How to read:** Each dot represents a sample. Red = high feature value, Blue = low feature value. Position shows impact on prediction.")
+            
+            fig, ax = plt.subplots(figsize=(10, 8))
+            shap.summary_plot(shap_values, X_sample, show=False, plot_size=(10, 8))
+            plt.tight_layout()
+            st.pyplot(fig)
+            plt.close()
+            
+            st.caption("""
+            - **X-axis (SHAP value)**: Positive values increase volatility prediction, negative values decrease it
+            - **Color**: Red indicates high feature values, blue indicates low feature values
+            - **Y-axis**: Features ranked by importance (top = most important)
             """)
         
+        with tab2:
+            st.subheader("Feature Importance (Mean |SHAP|)")
+            st.markdown("**Mean absolute SHAP values** show average impact magnitude across all predictions")
+            
+            fig, ax = plt.subplots(figsize=(10, 8))
+            shap.summary_plot(shap_values, X_sample, plot_type="bar", show=False)
+            plt.tight_layout()
+            st.pyplot(fig)
+            plt.close()
+            
+            # Show top features table
+            st.markdown("---")
+            st.markdown("**Top 10 Features by SHAP Importance:**")
+            
+            # Calculate mean absolute SHAP values
+            mean_abs_shap = pd.DataFrame({
+                'Feature': X_sample.columns,
+                'Mean |SHAP|': np.abs(shap_values).mean(axis=0)
+            }).sort_values('Mean |SHAP|', ascending=False)
+            
+            st.dataframe(mean_abs_shap.head(10), use_container_width=True)
         
         
-        # Interactive Feature Impact
-        st.subheader("Explore Individual Feature Impact")
-        selected_feature = st.selectbox(
-            "Select a feature to explore:",
-            feat_imp['feature'].tolist()
-        )
-        
-        feature_rank = feat_imp[feat_imp['feature'] == selected_feature].index[0] + 1
-        feature_importance = feat_imp[feat_imp['feature'] == selected_feature]['importance'].values[0]
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Feature Rank", f"#{feature_rank} of {len(feat_imp)}")
-        with col2:
-            st.metric("Importance Score", f"{feature_importance:.2f}")
-        with col3:
-            impact = "Strong" if feature_importance > 10 else "Moderate" if feature_importance > 5 else "Mild"
-            st.metric("Impact Level", impact)
-        
-        # Show feature distribution
-        if selected_feature in df.columns:
-            st.markdown(f"**Distribution of `{selected_feature}` by Volatility Class:**")
-            fig = px.histogram(
-                df,
-                x=selected_feature,
-                color='high_volatility',
-                color_discrete_map={0: '#a78bfa', 1: '#ef4444'},
-                labels={'high_volatility': 'Volatile'},
-                title=f"Distribution of {selected_feature}",
-                marginal='box',
-                barmode='overlay',
-                opacity=0.7,
-                template=get_plotly_template()
+        with tab4:
+            st.subheader("Explain Single Prediction")
+            st.markdown("Select a sample to see how features contributed to its prediction")
+            
+            # Sample selector
+            sample_idx = st.slider(
+                "Select sample index:",
+                0, len(X_sample) - 1, 0
             )
-            fig.update_layout(height=400)
-            st.plotly_chart(fig, use_container_width=True)
+            
+            # Get prediction
+            sample_features = X_sample.iloc[sample_idx:sample_idx+1]
+            prediction = model.predict(sample_features)[0]
+            probability = model.predict_proba(sample_features)[0]
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Prediction", "VOLATILE" if prediction == 1 else "STABLE")
+            with col2:
+                st.metric("Confidence", f"{max(probability):.1%}")
+            with col3:
+                st.metric("Volatility Prob", f"{probability[1]:.1%}")
+            
+            # Waterfall plot
+            st.markdown("**Feature Contributions (Waterfall Plot):**")
+            
+            fig, ax = plt.subplots(figsize=(10, 8))
+            shap.waterfall_plot(
+                shap.Explanation(
+                    values=shap_values[sample_idx],
+                    base_values=expected_value,
+                    data=X_sample.iloc[sample_idx].values,
+                    feature_names=X_sample.columns.tolist()
+                ),
+                show=False
+            )
+            plt.tight_layout()
+            st.pyplot(fig)
+            plt.close()
+            
+            st.caption("""
+            - **Red bars** push prediction toward VOLATILE (positive contribution)
+            - **Blue bars** push prediction toward STABLE (negative contribution)
+            - **Bar length** shows magnitude of contribution
+            """)
+            
+            # Show sample details
+            st.markdown("---")
+            st.markdown("**Sample Feature Values:**")
+            
+            sample_display = pd.DataFrame({
+                'Feature': X_sample.columns,
+                'Value': X_sample.iloc[sample_idx].values.astype(str),  # Convert all to string
+                'SHAP Value': shap_values[sample_idx]
+            }).sort_values('SHAP Value', key=abs, ascending=False)
+            
+            st.dataframe(sample_display.head(15), use_container_width=True)
     
     
     # PAGE: MAKE PREDICTIONS
