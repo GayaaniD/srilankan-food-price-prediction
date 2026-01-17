@@ -9,20 +9,22 @@ import os
 import warnings
 import shap
 import matplotlib.pyplot as plt
-warnings.filterwarnings('ignore')
+
+warnings.filterwarnings("ignore")
 
 # Page configuration
 st.set_page_config(
     page_title="Food Price Volatility Predictor",
     page_icon="📈",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
 
 # MODERN CSS STYLING
 
-st.markdown("""
+st.markdown(
+    """
 <style>
     /* Import Google Fonts */
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
@@ -359,19 +361,22 @@ st.markdown("""
         box-shadow: 0 8px 24px rgba(16, 185, 129, 0.2);
     }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 
 # CHECK FOR REQUIRED FILES
 
 REQUIRED_FILES = [
-    'catboost_model.cbm',
-    'feature_info.json',
-    'model_metrics.json',
-    'processed_data.csv',
-    'feature_importance.csv',
-    'classification_report.json'
+    "catboost_model.cbm",
+    "feature_info.json",
+    "model_metrics.json",
+    "processed_data.csv",
+    "feature_importance.csv",
+    "classification_report.json",
 ]
+
 
 def check_required_files():
     """Check if all required files exist"""
@@ -384,171 +389,239 @@ def check_required_files():
 
 # LOAD PRE-TRAINED MODEL AND DATA (CACHED)
 
+
 @st.cache_resource
 def load_model():
     """Load the pre-trained CatBoost model (cached - loads only once)"""
     model = CatBoostClassifier()
-    model.load_model('catboost_model.cbm')
+    model.load_model("catboost_model.cbm")
     return model
+
 
 @st.cache_data
 def load_feature_info():
     """Load feature configuration"""
-    with open('feature_info.json', 'r') as f:
+    with open("feature_info.json", "r") as f:
         return json.load(f)
+
 
 @st.cache_data
 def load_metrics():
     """Load model metrics"""
-    with open('model_metrics.json', 'r') as f:
+    with open("model_metrics.json", "r") as f:
         return json.load(f)
+
 
 @st.cache_data
 def load_processed_data():
     """Load processed data"""
-    df = pd.read_csv('processed_data.csv')
-    df['date'] = pd.to_datetime(df['date'])
+    df = pd.read_csv("processed_data.csv")
+    df["date"] = pd.to_datetime(df["date"])
     return df
+
 
 @st.cache_data
 def load_feature_importance():
     """Load feature importance"""
-    return pd.read_csv('feature_importance.csv')
+    return pd.read_csv("feature_importance.csv")
+
 
 @st.cache_data
 def load_classification_report():
     """Load classification report from training"""
-    with open('classification_report.json', 'r') as f:
+    with open("classification_report.json", "r") as f:
         return json.load(f)
 
 
 # SHAP COMPUTATION FUNCTION
+
 
 def compute_shap_values(model, data_sample):
     """Compute SHAP values for a sample of data"""
     # Create SHAP explainer
     explainer = shap.TreeExplainer(model)
     shap_values = explainer.shap_values(data_sample)
-    
+
     # Handle different return types from CatBoost
     if isinstance(shap_values, list):
         # Binary classification - get positive class SHAP values
         shap_values = shap_values[1] if len(shap_values) > 1 else shap_values[0]
-    
+
     expected_value = explainer.expected_value
     if isinstance(expected_value, list):
-        expected_value = expected_value[1] if len(expected_value) > 1 else expected_value[0]
-    
+        expected_value = (
+            expected_value[1] if len(expected_value) > 1 else expected_value[0]
+        )
+
     return shap_values, expected_value
 
 
 # FEATURE ENGINEERING FOR NEW PREDICTIONS
 
+
 def create_features_for_prediction(input_data, historical_data, feature_info):
     """Create features for a new prediction based on input data"""
-    commodity_hist = historical_data[historical_data['commodity'] == input_data['commodity']]
-    
+    commodity_hist = historical_data[
+        historical_data["commodity"] == input_data["commodity"]
+    ]
+
     if len(commodity_hist) == 0:
         return None, "No historical data found for this commodity"
-    
+
     features = {}
-    
+
     # Categorical features
-    features['admin1'] = input_data['province']
-    features['admin2'] = input_data.get('district', commodity_hist['admin2'].mode().iloc[0])
-    features['market'] = input_data['market']
-    features['category'] = input_data['category']
-    features['commodity'] = input_data['commodity']
-    
+    features["admin1"] = input_data["province"]
+    features["admin2"] = input_data.get(
+        "district", commodity_hist["admin2"].mode().iloc[0]
+    )
+    features["market"] = input_data["market"]
+    features["category"] = input_data["category"]
+    features["commodity"] = input_data["commodity"]
+
     # Temporal features
-    features['year'] = input_data['year']
-    features['month'] = input_data['month']
-    features['quarter'] = (input_data['month'] - 1) // 3 + 1
-    features['is_maha_season'] = 1 if input_data['month'] in [10, 11, 12, 1, 2] else 0
-    features['is_yala_season'] = 1 if input_data['month'] in [5, 6, 7, 8, 9] else 0
-    features['is_festive_period'] = 1 if input_data['month'] in [4, 12] else 0
-    
+    features["year"] = input_data["year"]
+    features["month"] = input_data["month"]
+    features["quarter"] = (input_data["month"] - 1) // 3 + 1
+    features["is_maha_season"] = 1 if input_data["month"] in [10, 11, 12, 1, 2] else 0
+    features["is_yala_season"] = 1 if input_data["month"] in [5, 6, 7, 8, 9] else 0
+    features["is_festive_period"] = 1 if input_data["month"] in [4, 12] else 0
+
     # Price features
-    features['price'] = input_data['current_price']
-    
+    features["price"] = input_data["current_price"]
+
     # Derived features from historical data
     recent_hist = commodity_hist.tail(6)
-    features['price_lag_1'] = input_data['previous_price']
-    features['price_change_lag_1'] = ((input_data['current_price'] - input_data['previous_price']) / 
-                                       input_data['previous_price'] * 100) if input_data['previous_price'] > 0 else 0
-    
-    features['rolling_mean_3'] = recent_hist['price'].tail(3).mean() if len(recent_hist) >= 3 else input_data['current_price']
-    features['rolling_std_3'] = recent_hist['price'].tail(3).std() if len(recent_hist) >= 3 else 0
-    features['rolling_volatility_3'] = recent_hist['price_change_pct'].abs().tail(3).mean() if len(recent_hist) >= 3 else 0
-    features['price_momentum'] = ((input_data['current_price'] - features['rolling_mean_3']) / 
-                                   (features['rolling_mean_3'] + 0.001) * 100)
-    
+    features["price_lag_1"] = input_data["previous_price"]
+    features["price_change_lag_1"] = (
+        (
+            (input_data["current_price"] - input_data["previous_price"])
+            / input_data["previous_price"]
+            * 100
+        )
+        if input_data["previous_price"] > 0
+        else 0
+    )
+
+    features["rolling_mean_3"] = (
+        recent_hist["price"].tail(3).mean()
+        if len(recent_hist) >= 3
+        else input_data["current_price"]
+    )
+    features["rolling_std_3"] = (
+        recent_hist["price"].tail(3).std() if len(recent_hist) >= 3 else 0
+    )
+    features["rolling_volatility_3"] = (
+        recent_hist["price_change_pct"].abs().tail(3).mean()
+        if len(recent_hist) >= 3
+        else 0
+    )
+    features["price_momentum"] = (
+        (input_data["current_price"] - features["rolling_mean_3"])
+        / (features["rolling_mean_3"] + 0.001)
+        * 100
+    )
+
     # Z-score
-    rolling_mean_6 = recent_hist['price'].mean() if len(recent_hist) > 0 else input_data['current_price']
-    rolling_std_6 = recent_hist['price'].std() if len(recent_hist) > 0 else 1
-    features['z_score'] = (input_data['current_price'] - rolling_mean_6) / (rolling_std_6 + 0.001)
-    
+    rolling_mean_6 = (
+        recent_hist["price"].mean()
+        if len(recent_hist) > 0
+        else input_data["current_price"]
+    )
+    rolling_std_6 = recent_hist["price"].std() if len(recent_hist) > 0 else 1
+    features["z_score"] = (input_data["current_price"] - rolling_mean_6) / (
+        rolling_std_6 + 0.001
+    )
+
     # Annual average comparison
-    annual_avg = commodity_hist[commodity_hist['year'] == input_data['year']]['price'].mean()
+    annual_avg = commodity_hist[commodity_hist["year"] == input_data["year"]][
+        "price"
+    ].mean()
     if pd.isna(annual_avg):
-        annual_avg = commodity_hist['price'].mean()
-    features['price_vs_annual_avg'] = (input_data['current_price'] - annual_avg) / (annual_avg + 0.001) * 100
-    
+        annual_avg = commodity_hist["price"].mean()
+    features["price_vs_annual_avg"] = (
+        (input_data["current_price"] - annual_avg) / (annual_avg + 0.001) * 100
+    )
+
     # Price percentile
-    features['price_percentile'] = (commodity_hist['price'] < input_data['current_price']).mean()
-    
+    features["price_percentile"] = (
+        commodity_hist["price"] < input_data["current_price"]
+    ).mean()
+
     # Geographic features
-    market_data = commodity_hist[commodity_hist['market'] == input_data['market']]
+    market_data = commodity_hist[commodity_hist["market"] == input_data["market"]]
     if len(market_data) > 0:
-        features['distance_from_colombo'] = market_data['distance_from_colombo'].iloc[0]
+        features["distance_from_colombo"] = market_data["distance_from_colombo"].iloc[0]
     else:
-        features['distance_from_colombo'] = 50
-    
-    features['is_conflict_region'] = 1 if input_data['province'] in ['Northern', 'Eastern'] else 0
-    
+        features["distance_from_colombo"] = 50
+
+    features["is_conflict_region"] = (
+        1 if input_data["province"] in ["Northern", "Eastern"] else 0
+    )
+
     # Essential commodity flag
-    essential = ['Rice (red nadu)', 'Rice (white)', 'Rice (medium grain)', 'Wheat flour', 
-                 'Potatoes (local)', 'Potatoes (imported)', 'Coconut', 'Onions (red)', 'Lentils']
-    features['is_essential'] = 1 if input_data['commodity'] in essential else 0
-    
+    essential = [
+        "Rice (red nadu)",
+        "Rice (white)",
+        "Rice (medium grain)",
+        "Wheat flour",
+        "Potatoes (local)",
+        "Potatoes (imported)",
+        "Coconut",
+        "Onions (red)",
+        "Lentils",
+    ]
+    features["is_essential"] = 1 if input_data["commodity"] in essential else 0
+
     # Create DataFrame with correct column order
     feature_df = pd.DataFrame([features])
-    feature_df = feature_df[feature_info['all_features']]
-    
+    feature_df = feature_df[feature_info["all_features"]]
+
     return feature_df, None
 
 
 # PLOTLY THEME
 
+
 def get_plotly_template():
     """Return modern light plotly template"""
     return {
-        'layout': {
-            'paper_bgcolor': '#ffffff',
-            'plot_bgcolor': 'rgba(248, 249, 251, 0.5)',
-            'font': {'color': '#2d3748', 'family': 'Inter'},
-            'xaxis': {'gridcolor': 'rgba(0, 0, 0, 0.05)', 'linecolor': 'rgba(0, 0, 0, 0.1)'},
-            'yaxis': {'gridcolor': 'rgba(0, 0, 0, 0.05)', 'linecolor': 'rgba(0, 0, 0, 0.1)'},
+        "layout": {
+            "paper_bgcolor": "#ffffff",
+            "plot_bgcolor": "rgba(248, 249, 251, 0.5)",
+            "font": {"color": "#2d3748", "family": "Inter"},
+            "xaxis": {
+                "gridcolor": "rgba(0, 0, 0, 0.05)",
+                "linecolor": "rgba(0, 0, 0, 0.1)",
+            },
+            "yaxis": {
+                "gridcolor": "rgba(0, 0, 0, 0.05)",
+                "linecolor": "rgba(0, 0, 0, 0.1)",
+            },
         }
     }
 
 
 # MAIN APP
 
+
 def main():
-    st.markdown("""
+    st.markdown(
+        """
     <div class="main-header">
         <h1>Sri Lanka Food Price Volatility Predictor</h1>
     </div>
-    """, unsafe_allow_html=True)
-    
+    """,
+        unsafe_allow_html=True,
+    )
+
     # Check for required files
     missing_files = check_required_files()
     if missing_files:
         st.error(f"""
         ### Required Files Missing!
         
-        The following files are missing: **{', '.join(missing_files)}**
+        The following files are missing: **{", ".join(missing_files)}**
         
         Please run the training script first:
         ```bash
@@ -556,7 +629,7 @@ def main():
         ```
         """)
         return
-    
+
     # Load everything (cached - only loads once)
     try:
         model = load_model()
@@ -569,22 +642,28 @@ def main():
     except Exception as e:
         st.error(f"Error loading model: {str(e)}")
         return
-    
+
     # Sidebar navigation with radio buttons
     st.sidebar.header("Navigation")
-    
+
     page = st.sidebar.radio(
         "Select a page:",
-        ["Overview", "Model Performance", "Feature Importance", "SHAP Analysis", "Make Predictions", "Data Explorer"],
-        label_visibility="collapsed"
+        [
+            "Overview",
+            "Model Performance",
+            "Feature Importance",
+            "SHAP Analysis",
+            "Make Predictions",
+            "Data Explorer",
+        ],
+        label_visibility="collapsed",
     )
-    
-    
+
     # PAGE: OVERVIEW
-    
+
     if page == "Overview":
         st.header("Dataset & Model Overview")
-        
+
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.metric("Total Records", f"{len(df):,}")
@@ -594,46 +673,43 @@ def main():
             st.metric("Commodities", f"{df['commodity'].nunique()}")
         with col4:
             st.metric("Markets", f"{df['market'].nunique()}")
-        
-        
-        
+
         col1, col2 = st.columns(2)
-        
+
         with col1:
             st.subheader("Model Performance")
-            test_m = metrics['test']
+            test_m = metrics["test"]
             st.markdown(f"""
             | Metric | Value |
             |--------|-------|
-            | Test Accuracy | {test_m['accuracy']:.1%} |
-            | Test F1-Score | {test_m['f1']:.4f} |
-            | Test ROC-AUC | {test_m['roc_auc']:.4f} |
-            | Features | {len(feature_info['all_features'])} |
+            | Test Accuracy | {test_m["accuracy"]:.1%} |
+            | Test F1-Score | {test_m["f1"]:.4f} |
+            | Test ROC-AUC | {test_m["roc_auc"]:.4f} |
+            | Features | {len(feature_info["all_features"])} |
             """)
-        
+
         with col2:
             st.subheader("Volatility by Category")
-            cat_vol = df.groupby('category')['high_volatility'].mean() * 100
+            cat_vol = df.groupby("category")["high_volatility"].mean() * 100
             fig = px.bar(
-                x=cat_vol.values, 
-                y=cat_vol.index, 
-                orientation='h',
+                x=cat_vol.values,
+                y=cat_vol.index,
+                orientation="h",
                 color=cat_vol.values,
-                color_continuous_scale='Purples',
-                template=get_plotly_template()
+                color_continuous_scale="Purples",
+                template=get_plotly_template(),
             )
             fig.update_layout(showlegend=False, height=300)
             st.plotly_chart(fig, use_container_width=True)
-    
-    
+
     # PAGE: MODEL PERFORMANCE
-    
+
     elif page == "Model Performance":
         st.header("Model Performance")
-        
-        test_m = metrics['test']
-        train_m = metrics['train']
-        
+
+        test_m = metrics["test"]
+        train_m = metrics["train"]
+
         col1, col2, col3 = st.columns(3)
         with col1:
             st.metric("Test Accuracy", f"{test_m['accuracy']:.1%}")
@@ -641,185 +717,184 @@ def main():
             st.metric("Test F1-Score", f"{test_m['f1']:.3f}")
         with col3:
             st.metric("Test ROC-AUC", f"{test_m['roc_auc']:.3f}")
-        
+
         # Overfitting check
-        gap = train_m['accuracy'] - test_m['accuracy']
+        gap = train_m["accuracy"] - test_m["accuracy"]
         if gap < 0.05:
             st.success(f"Model generalization is EXCELLENT (Train-Test gap: {gap:.4f})")
         elif gap < 0.10:
             st.warning(f"Slight overfitting detected (Train-Test gap: {gap:.4f})")
         else:
             st.error(f"Overfitting detected (Train-Test gap: {gap:.4f})")
-        
-        
-        
+
         # Metrics comparison
         col1, col2 = st.columns(2)
-        
+
         with col1:
             st.subheader("Train vs Test Metrics")
-            train_image_path = 'metrics_comparison.png'
+            train_image_path = "metrics_comparison.png"
             if os.path.exists(train_image_path):
                 st.image(train_image_path, use_container_width=True)
             else:
                 st.warning("Train vs Test Metrics image not found")
-        
+
         with col2:
             st.subheader("Confusion Matrix")
-            confusion_image_path = 'confusion_matrix.png'
+            confusion_image_path = "confusion_matrix.png"
             if os.path.exists(confusion_image_path):
                 st.image(confusion_image_path, use_container_width=True)
             else:
                 st.warning("Confusion Matrix image not found")
-        
-        
-        
+
         # ROC and PR curves
         col1, col2 = st.columns(2)
-        
+
         with col1:
             st.subheader("ROC Curve")
-            roc_image_path = 'roc_curve.png'
+            roc_image_path = "roc_curve.png"
             if os.path.exists(roc_image_path):
                 st.image(roc_image_path, use_container_width=True)
             else:
                 st.warning("ROC curve image not found")
-        
+
         with col2:
             st.subheader("Precision-Recall Curve")
-            pr_image_path = 'precision_recall_curve.png'
+            pr_image_path = "precision_recall_curve.png"
             if os.path.exists(pr_image_path):
                 st.image(pr_image_path, use_container_width=True)
             else:
                 st.warning("Precision-Recall curve image not found")
-        
-        
+
         # Classification Report
         st.subheader("Classification Report (Test Set)")
-        stable_metrics = class_report['Stable']
-        volatile_metrics = class_report['Volatile']
-        accuracy = class_report['accuracy']
-        
+        stable_metrics = class_report["Stable"]
+        volatile_metrics = class_report["Volatile"]
+        accuracy = class_report["accuracy"]
+
         st.markdown(f"""
         | Class | Precision | Recall | F1-Score | Support |
         |-------|-----------|--------|----------|---------|
-        | **Stable** | {stable_metrics['precision']:.2f} | {stable_metrics['recall']:.2f} | {stable_metrics['f1-score']:.2f} | {int(stable_metrics['support'])} |
-        | **Volatile** | {volatile_metrics['precision']:.2f} | {volatile_metrics['recall']:.2f} | {volatile_metrics['f1-score']:.2f} | {int(volatile_metrics['support'])} |
+        | **Stable** | {stable_metrics["precision"]:.2f} | {stable_metrics["recall"]:.2f} | {stable_metrics["f1-score"]:.2f} | {int(stable_metrics["support"])} |
+        | **Volatile** | {volatile_metrics["precision"]:.2f} | {volatile_metrics["recall"]:.2f} | {volatile_metrics["f1-score"]:.2f} | {int(volatile_metrics["support"])} |
         
         **Overall Accuracy:** {accuracy:.2f}
         """)
-    
-    
+
     # PAGE: FEATURE ANALYSIS
-    
+
     elif page == "Feature Importance":
         st.header("Feature Importance")
-        
+
         fig = px.bar(
-            feat_imp.head(15), 
-            x='importance', 
-            y='feature', 
-            orientation='h',
-            color='importance',
-            color_continuous_scale='Viridis',
-            template=get_plotly_template()
+            feat_imp.head(15),
+            x="importance",
+            y="feature",
+            orientation="h",
+            color="importance",
+            color_continuous_scale="Viridis",
+            template=get_plotly_template(),
         )
         fig.update_layout(height=500, showlegend=False)
         fig.update_yaxes(autorange="reversed")
         st.plotly_chart(fig, use_container_width=True)
-        
+
         st.dataframe(feat_imp, use_container_width=True)
-    
-    
+
     # PAGE: SHAP ANALYSIS
-    
+
     elif page == "SHAP Analysis":
         st.header("SHAP Analysis")
-        
-        st.info("📊 SHAP (SHapley Additive exPlanations) values show how each feature contributes to individual predictions")
-        
+
+        st.info(
+            "📊 SHAP (SHapley Additive exPlanations) values show how each feature contributes to individual predictions"
+        )
+
         # Sample size selector
         col1, col2 = st.columns([3, 1])
         with col1:
             st.markdown("**Select sample size for SHAP computation:**")
         with col2:
             sample_size = st.selectbox("Sample", [100, 500, 1000, 2000], index=1)
-        
+
         # Prepare sample data
         with st.spinner(f"Computing SHAP values for {sample_size} samples..."):
             # Get a representative sample
             sample_df = df.sample(n=min(sample_size, len(df)), random_state=42)
-            
+
             # Prepare features for SHAP
-            X_sample = sample_df[feature_info['all_features']].copy()
-            
+            X_sample = sample_df[feature_info["all_features"]].copy()
+
             # Handle categorical features
-            for col in feature_info['categorical_features']:
+            for col in feature_info["categorical_features"]:
                 if col in X_sample.columns:
                     X_sample[col] = X_sample[col].astype(str)
-            
+
             # Compute SHAP values
             shap_values, expected_value = compute_shap_values(model, X_sample)
-            
+
             st.success(f"✓ SHAP values computed for {len(X_sample)} samples")
-        
+
         # Tab layout for different SHAP visualizations
         tab1, tab2, tab4 = st.tabs(["Summary Plot", "Bar Plot", "Single Prediction"])
-        
+
         with tab1:
             st.subheader("SHAP Summary Plot")
-            st.markdown("**How to read:** Each dot represents a sample. Red = high feature value, Blue = low feature value. Position shows impact on prediction.")
-            
+            st.markdown(
+                "**How to read:** Each dot represents a sample. Red = high feature value, Blue = low feature value. Position shows impact on prediction."
+            )
+
             fig, ax = plt.subplots(figsize=(10, 8))
             shap.summary_plot(shap_values, X_sample, show=False, plot_size=(10, 8))
             plt.tight_layout()
             st.pyplot(fig)
             plt.close()
-            
+
             st.caption("""
             - **X-axis (SHAP value)**: Positive values increase volatility prediction, negative values decrease it
             - **Color**: Red indicates high feature values, blue indicates low feature values
             - **Y-axis**: Features ranked by importance (top = most important)
             """)
-        
+
         with tab2:
             st.subheader("Feature Importance (Mean |SHAP|)")
-            st.markdown("**Mean absolute SHAP values** show average impact magnitude across all predictions")
-            
+            st.markdown(
+                "**Mean absolute SHAP values** show average impact magnitude across all predictions"
+            )
+
             fig, ax = plt.subplots(figsize=(10, 8))
             shap.summary_plot(shap_values, X_sample, plot_type="bar", show=False)
             plt.tight_layout()
             st.pyplot(fig)
             plt.close()
-            
+
             # Show top features table
             st.markdown("---")
             st.markdown("**Top 10 Features by SHAP Importance:**")
-            
+
             # Calculate mean absolute SHAP values
-            mean_abs_shap = pd.DataFrame({
-                'Feature': X_sample.columns,
-                'Mean |SHAP|': np.abs(shap_values).mean(axis=0)
-            }).sort_values('Mean |SHAP|', ascending=False)
-            
+            mean_abs_shap = pd.DataFrame(
+                {
+                    "Feature": X_sample.columns,
+                    "Mean |SHAP|": np.abs(shap_values).mean(axis=0),
+                }
+            ).sort_values("Mean |SHAP|", ascending=False)
+
             st.dataframe(mean_abs_shap.head(10), use_container_width=True)
-        
-        
+
         with tab4:
             st.subheader("Explain Single Prediction")
-            st.markdown("Select a sample to see how features contributed to its prediction")
-            
-            # Sample selector
-            sample_idx = st.slider(
-                "Select sample index:",
-                0, len(X_sample) - 1, 0
+            st.markdown(
+                "Select a sample to see how features contributed to its prediction"
             )
-            
+
+            # Sample selector
+            sample_idx = st.slider("Select sample index:", 0, len(X_sample) - 1, 0)
+
             # Get prediction
-            sample_features = X_sample.iloc[sample_idx:sample_idx+1]
+            sample_features = X_sample.iloc[sample_idx : sample_idx + 1]
             prediction = model.predict(sample_features)[0]
             probability = model.predict_proba(sample_features)[0]
-            
+
             col1, col2, col3 = st.columns(3)
             with col1:
                 st.metric("Prediction", "VOLATILE" if prediction == 1 else "STABLE")
@@ -827,92 +902,122 @@ def main():
                 st.metric("Confidence", f"{max(probability):.1%}")
             with col3:
                 st.metric("Volatility Prob", f"{probability[1]:.1%}")
-            
+
             # Waterfall plot
             st.markdown("**Feature Contributions (Waterfall Plot):**")
-            
+
             fig, ax = plt.subplots(figsize=(10, 8))
             shap.waterfall_plot(
                 shap.Explanation(
                     values=shap_values[sample_idx],
                     base_values=expected_value,
                     data=X_sample.iloc[sample_idx].values,
-                    feature_names=X_sample.columns.tolist()
+                    feature_names=X_sample.columns.tolist(),
                 ),
-                show=False
+                show=False,
             )
             plt.tight_layout()
             st.pyplot(fig)
             plt.close()
-            
+
             st.caption("""
             - **Red bars** push prediction toward VOLATILE (positive contribution)
             - **Blue bars** push prediction toward STABLE (negative contribution)
             - **Bar length** shows magnitude of contribution
             """)
-            
+
             # Show sample details
             st.markdown("---")
             st.markdown("**Sample Feature Values:**")
-            
-            sample_display = pd.DataFrame({
-                'Feature': X_sample.columns,
-                'Value': X_sample.iloc[sample_idx].values.astype(str),  # Convert all to string
-                'SHAP Value': shap_values[sample_idx]
-            }).sort_values('SHAP Value', key=abs, ascending=False)
-            
+
+            sample_display = pd.DataFrame(
+                {
+                    "Feature": X_sample.columns,
+                    "Value": X_sample.iloc[sample_idx].values.astype(
+                        str
+                    ),  # Convert all to string
+                    "SHAP Value": shap_values[sample_idx],
+                }
+            ).sort_values("SHAP Value", key=abs, ascending=False)
+
             st.dataframe(sample_display.head(15), use_container_width=True)
-    
-    
+
     # PAGE: MAKE PREDICTIONS
-    
+
     elif page == "Make Predictions":
         st.header("Predict Price Volatility")
-        
+
         col1, col2, col3 = st.columns(3)
-        
+
         with col1:
-            input_commodity = st.selectbox("Commodity", sorted(df['commodity'].unique()))
-            commodity_cat = df[df['commodity'] == input_commodity]['category'].mode()
-            default_cat = commodity_cat.iloc[0] if len(commodity_cat) > 0 else df['category'].mode().iloc[0]
-            input_category = st.selectbox("Category", sorted(df['category'].unique()),
-                                         index=list(sorted(df['category'].unique())).index(default_cat))
-            input_market = st.selectbox("Market", sorted(df['market'].unique()))
-        
+            input_commodity = st.selectbox(
+                "Commodity", sorted(df["commodity"].unique())
+            )
+            commodity_cat = df[df["commodity"] == input_commodity]["category"].mode()
+            default_cat = (
+                commodity_cat.iloc[0]
+                if len(commodity_cat) > 0
+                else df["category"].mode().iloc[0]
+            )
+            input_category = st.selectbox(
+                "Category",
+                sorted(df["category"].unique()),
+                index=list(sorted(df["category"].unique())).index(default_cat),
+            )
+            input_market = st.selectbox("Market", sorted(df["market"].unique()))
+
         with col2:
-            input_province = st.selectbox("Province", sorted(df['admin1'].unique()))
-            input_year = st.number_input("Year", min_value=2020, max_value=2030, value=2025)
+            input_province = st.selectbox("Province", sorted(df["admin1"].unique()))
+            input_year = st.number_input(
+                "Year", min_value=2020, max_value=2030, value=2025
+            )
             input_month = st.slider("Month", 1, 12, 6)
-        
+
         with col3:
-            commodity_prices = df[df['commodity'] == input_commodity]['price']
-            default_price = commodity_prices.median() if len(commodity_prices) > 0 else 500.0
-            input_current_price = st.number_input("Current Price (LKR)", min_value=1.0, 
-                                                 value=float(default_price), step=10.0)
-            input_previous_price = st.number_input("Previous Price (LKR)", min_value=1.0, 
-                                                  value=float(default_price * 0.95), step=10.0)
-        
+            commodity_prices = df[df["commodity"] == input_commodity]["price"]
+            default_price = (
+                commodity_prices.median() if len(commodity_prices) > 0 else 500.0
+            )
+            input_current_price = st.number_input(
+                "Current Price (LKR)",
+                min_value=1.0,
+                value=float(default_price),
+                step=10.0,
+            )
+            input_previous_price = st.number_input(
+                "Previous Price (LKR)",
+                min_value=1.0,
+                value=float(default_price * 0.95),
+                step=10.0,
+            )
+
         if st.button("Predict Volatility", use_container_width=True, type="primary"):
             input_data = {
-                'commodity': input_commodity,
-                'category': input_category,
-                'market': input_market,
-                'province': input_province,
-                'year': input_year,
-                'month': input_month,
-                'current_price': input_current_price,
-                'previous_price': input_previous_price
+                "commodity": input_commodity,
+                "category": input_category,
+                "market": input_market,
+                "province": input_province,
+                "year": input_year,
+                "month": input_month,
+                "current_price": input_current_price,
+                "previous_price": input_previous_price,
             }
-            
-            feature_df, error = create_features_for_prediction(input_data, df, feature_info)
-            
+
+            feature_df, error = create_features_for_prediction(
+                input_data, df, feature_info
+            )
+
             if error:
                 st.error(f"Error: {error}")
             else:
                 prediction = model.predict(feature_df)[0]
                 probability = model.predict_proba(feature_df)[0][1]
-                price_change = ((input_current_price - input_previous_price) / input_previous_price * 100)
-                
+                price_change = (
+                    (input_current_price - input_previous_price)
+                    / input_previous_price
+                    * 100
+                )
+
                 col1, col2, col3 = st.columns(3)
                 with col1:
                     st.metric("Price Change", f"{price_change:.1f}%")
@@ -920,58 +1025,77 @@ def main():
                     st.metric("Volatility Probability", f"{probability:.1%}")
                 with col3:
                     st.metric("Prediction", "VOLATILE" if prediction == 1 else "STABLE")
-                
+
                 if prediction == 1:
-                    st.markdown(f"""
+                    st.markdown(
+                        f"""
                     <div class="prediction-card volatile">
                         <h2 style="color: #ef4444; margin: 0;">⚠️ HIGH VOLATILITY PREDICTED</h2>
                         <p style="font-size: 1.2rem; margin-top: 1rem; color: #2d3748;">Probability: {probability:.1%}</p>
                     </div>
-                    """, unsafe_allow_html=True)
+                    """,
+                        unsafe_allow_html=True,
+                    )
                 else:
-                    st.markdown(f"""
+                    st.markdown(
+                        f"""
                     <div class="prediction-card stable">
                         <h2 style="color: #10b981; margin: 0;">✓ STABLE PRICE EXPECTED</h2>
                         <p style="font-size: 1.2rem; margin-top: 1rem; color: #2d3748;">Volatility Probability: {probability:.1%}</p>
                     </div>
-                    """, unsafe_allow_html=True)
-    
-    
+                    """,
+                        unsafe_allow_html=True,
+                    )
+
     # PAGE: DATA EXPLORER
-    
+
     elif page == "Data Explorer":
         st.header("Data Explorer")
-        
+
         col1, col2 = st.columns(2)
-        
+
         with col1:
             selected_years = st.multiselect(
                 "Year",
-                sorted(df['year'].unique()),
-                default=sorted(df['year'].unique())[-3:]
+                sorted(df["year"].unique()),
+                default=sorted(df["year"].unique())[-3:],
             )
-        
+
         with col2:
             selected_categories = st.multiselect(
                 "Category",
-                df['category'].unique(),
-                default=list(df['category'].unique())[:3]
+                df["category"].unique(),
+                default=list(df["category"].unique())[:3],
             )
-        
-        filtered = df[(df['year'].isin(selected_years)) & (df['category'].isin(selected_categories))]
-        
+
+        filtered = df[
+            (df["year"].isin(selected_years))
+            & (df["category"].isin(selected_categories))
+        ]
+
         st.markdown(f"**Showing {len(filtered):,} records**")
-        
-        display_cols = ['date', 'market', 'admin1', 'commodity', 'price', 'high_volatility']
+
+        display_cols = [
+            "date",
+            "market",
+            "admin1",
+            "commodity",
+            "price",
+            "high_volatility",
+        ]
         st.dataframe(filtered[display_cols].head(500), use_container_width=True)
-    
+
     # Footer
-    
-    st.markdown("""
+
+    st.markdown(
+        """
     <div class="footer">
         MSc AI - ML Assignment | CatBoost
     </div>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
+
 
 if __name__ == "__main__":
     main()
